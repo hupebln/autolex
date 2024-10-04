@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "autolex"
+version = "0.1.0"
+description = "Synchronises Lexware/Lexoffice contacts to AutoTask"
+authors = ["Christian Schirge <11520417+hupebln@users.noreply.github.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+Flask = "^3.0.3"
+click = "^8.1.7"
+requests = "^2.32.3"
+uwsgi = "^2.0.27"
+
+[tool.poetry.scripts]
+autolex = "autolex:cli"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,59 @@
+line-length = 120
+target-version = "py311" # should match the py version from pyproject.toml
+
+# Directories to exclude.
+exclude = [
+  "tests",
+  "doc",
+  "docs",
+  "tools",
+  "build",
+  "dist",
+]
+
+[lint]
+extend-select = [
+  "W",    # pycodestyle warnings
+  "E",    # pycodestyle errors
+  "D",    # pydocstyle
+  "F",    # pyflakes
+  "B",    # flake8-bugbear
+  "ANN",  # flake8-annotations
+  "C4",   # flake8-comprehensions
+  "RUF",  # ruff
+  "I",    # isort
+  "YTT",  # flake8-2020
+]
+
+ignore = [
+  "D105",   # missing docstring in magic method
+]
+# Avoid trying to fix flake8-bugbear (`B`) violations.
+unfixable = ["B"]
+
+[lint.per-file-ignores]
+# Ignore `E402` (import violations) and D104 (undocumented public package) in all `__init__.py` files
+"__init__.py" = ["E402", "D104"]
+# Ignore ANN001 (missing type annotations) in selected subdirs
+"**/{tests,docs,tools}/*" = ["ANN001"]
+
+[lint.flake8-bugbear]
+# Allow default arguments like, e.g., `data: List[str] = fastapi.Query(None)`.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
+[lint.mccabe]
+# Flag errors (`C901`) whenever the complexity level exceeds 5.
+max-complexity = 5
+
+[lint.pydocstyle]
+# It makes your life easier if you configure your editors/IDEs to match this setting.
+convention = "google"
+
+[lint.isort]
+lines-after-imports = 2 # number of blank lines to place after imports
+lines-between-types = 1 # number of lines to place between "direct" and import from imports
+
+[format]
+# Use always UNIX line endings.
+line-ending = "lf"
+    

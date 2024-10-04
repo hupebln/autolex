@@ -1,0 +1,6 @@
+.venv
+.env
+.python-version
+.vscode
+.git
+.gitignore
