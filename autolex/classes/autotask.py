@@ -247,7 +247,7 @@ class AutoTask(requests.Session):
         company.id = autotask_id
 
         # Update the company in AutoTask
-        company_call = self.patch(companies_url, json=company.as_dict())
+        self.patch(companies_url, json=company.as_dict())
 
         # Get all contacts for the company
         contacts_url = f'{companies_url}/{autotask_id}/Contacts'
