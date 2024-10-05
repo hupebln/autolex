@@ -63,6 +63,8 @@ def webhook() -> str | None:
             case 'contact.changed':
                 _sync_contact()
                 return "Webhook received!"
+            case _:
+                return "Webhook received, but not processed!"
 
 @click.group()
 def cli() -> None:
