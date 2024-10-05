@@ -45,15 +45,24 @@ def webhook() -> str | None:
     if request.method == 'POST':
         webhook: Webhook = Webhook.load_webhook(request, os.getenv('LEXOFFICE_PUBKEY_PATH'))
 
+        # Get the contact ID from the webhook
+        contact_id = webhook.resourceId
+
         # Get the Lexware and AutoTask clients
         lexware, autotask = _return_clients()
 
-        # Handle the webhook event
-        contact_id = webhook.resourceId
-        lex_company = lexware.get_contact(contact_id)
-        autotask.assure_company(lex_company)
+        def _sync_contact() -> None:
+            # Handle the webhook event
+                lex_company = lexware.get_contact(contact_id)
+                autotask.assure_company(lex_company)
 
-        return "Webhook received!"
+        match webhook.eventType:
+            case 'contact.created':
+                _sync_contact()
+                return "Webhook received!"
+            case 'contact.updated':
+                _sync_contact()
+                return "Webhook received!"
 
 @click.group()
 def cli() -> None:
