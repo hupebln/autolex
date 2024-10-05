@@ -5,6 +5,7 @@ and managing company, billing, shipping, and contact person data.
 """
 
 import json
+import logging
 
 from base64 import b64decode
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 from flask import Request
 
+
+logger = logging.getLogger('autolex.lexware')
 
 @dataclass
 class Webhook:
@@ -32,6 +35,7 @@ class Webhook:
         :param data: A dictionary containing webhook data.
         :return: A Webhook instance.
         """
+        logger.debug(f'Loading webhook data: {data}')
         return cls(
             organizationId=data.get('organizationId'),
             eventType=data.get('eventType'),
@@ -45,10 +49,18 @@ class Webhook:
 
         :param flask_request: A Flask request object containing webhook data.
         """
+        logger.debug('Loading webhook from Flask request...')
+
+        # Check the content type
+        if flask_request.headers.get('Content-Type') != 'application/json':
+            logger.error('Invalid content type.')
+            raise ValueError('Invalid content type')
+
         # Check the signature
         signature = flask_request.headers.get('X-Lxo-Signature')
         public_key = open(pubkey_path).read()
         if not cls._verify_sha512_signature(public_key, signature, json.dumps(flask_request.json)):
+            logger.error('Invalid signature')
             raise ValueError('Invalid signature')
 
         # Load the webhook data
@@ -65,7 +77,9 @@ class Webhook:
         :param data: The data to verify.
         :return: True if the signature is valid, False otherwise.
         """
-        # Replace remove spaces from data
+        logger.debug('Verifying SHA-512 signature...')
+
+        # Remove spaces from data
         data = data.replace(' ', '')
 
         # Verify the signature
@@ -90,6 +104,8 @@ class BillingData:
         :param data: A dictionary containing billing data.
         :return: A BillingData instance.
         """
+        logging.debug(f'Loading billing data: {data}')
+
         return cls(
             street=data.get('street'),
             zip=data.get('zip'),
@@ -113,6 +129,8 @@ class ShippingData:
         :param data: A dictionary containing shipping data.
         :return: A ShippingData instance.
         """
+        logging.debug(f'Loading shipping data: {data}')
+
         return cls(
             street=data.get('street'),
             zip=data.get('zip'),
@@ -142,6 +160,8 @@ class ContactPerson:
         :param data: A dictionary containing contact person data.
         :return: A ContactPerson instance.
         """
+        logger.debug(f'Loading contact person data: {data}')
+
         return cls(
             salutation=data.get('salutation'),
             firstName=data.get('firstName'),
@@ -183,6 +203,8 @@ class Company:
         :param data: A dictionary containing company data.
         :return: A Company instance.
         """
+        logger.debug(f'Loading company data: {data}')
+
         return cls(
             id=data.get('id'),
             organizationId=data.get('organizationId'),
@@ -218,6 +240,8 @@ class Lexware(requests.Session):
         :param base_url: The base URL of the Lexware API.
         :param api_key: The API key for authentication.
         """
+        logger.debug('Initializing Lexware client...')
+
         super().__init__()
         self.base_url = base_url
         self.headers.update({'Authorization': f'Bearer {api_key}'})
@@ -228,6 +252,8 @@ class Lexware(requests.Session):
         :param id: The ID of the contact.
         :return: A Company instance representing the contact.
         """
+        logger.debug(f'Getting contact with ID: {id}')
+
         response = self.get(f'{self.base_url}/contacts/{id}')
         response.raise_for_status()
 

@@ -1,5 +1,7 @@
 """This module contains classes for handling AutoTask requests and representing companies."""
 
+import logging
+
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List
 from urllib.parse import quote
@@ -7,6 +9,9 @@ from urllib.parse import quote
 import requests
 
 from autolex.classes.lexware import Company as LexCompany
+
+
+logger = logging.getLogger('autolex.autotask')
 
 
 @dataclass
@@ -76,6 +81,8 @@ class Company:
 
     def as_dict(self: 'Company') -> dict:
         """Return the company as a dictionary - return only attributes which are set."""
+        logger.debug(f'Company as_dict: {asdict(self)}')
+
         obj_dict: dict = asdict(self)
         return {k: v for k, v in obj_dict.items() if v is not None}
 
@@ -144,6 +151,8 @@ class ContactModel:
 
     def as_dict(self: 'ContactModel') -> dict:
         """Return the ContactModel as a dictionary - return only attributes which are set."""
+        logger.debug(f'ContactModel as_dict: {asdict(self)}')
+
         obj_dict: dict = asdict(self)
         return {k: v for k, v in obj_dict.items() if v is not None}
 
@@ -161,6 +170,8 @@ class AutoTask(requests.Session):
         default_phone: str
     ) -> None:
         """Initialize the AutoTask class."""
+        logger.debug('Initializing AutoTask client...')
+
         super().__init__()
         self.base_url = base_url
         self.api_user = api_user
@@ -176,6 +187,8 @@ class AutoTask(requests.Session):
 
     def _get_country_id(self: 'AutoTask', country_code: str) -> int:
         """Get the country ID for a given country code."""
+        logger.debug(f'Getting country ID for country code: {country_code}')
+
         quoted_search = quote(f'{{"filter": [{{"field": "countryCode", "op": "eq", "value": "{country_code}"}}]}}')
         countries_url = f"{self.base_url}/Countries/query?search={quoted_search}"
         countries = self.get(countries_url).json()
@@ -198,18 +211,23 @@ class AutoTask(requests.Session):
         companies = company_search_object.get('items', [])
 
         if len(companies) == 0:
+            logger.info(f'Company (Lex Customer:{customer_number}) does not exist in AutoTask.')
+
             self.create_company(lex_company)
 
         if len(companies) == 1:
+            logger.info(f'Company (Lex Customer:{customer_number}) exists in AutoTask.')
+
             autotask_id = companies[0].get('id')
             self.update_company(lex_company, autotask_id)
 
         if len(companies) > 1:
-            print(f"Company (Lex Customer:{customer_number}) exists multiple times in AutoTask.")  # TODO logging
-
+            logger.error(f"Company (Lex Customer:{customer_number}) exists multiple times in AutoTask.")
 
     def create_company(self: 'AutoTask', lex_company: LexCompany) -> dict:
         """Create a new company in AutoTask."""
+        logger.debug(f'Creating company in AutoTask: {lex_company}')
+
         companies_url = f"{self.base_url}/Companies"
 
         # Create the company object
@@ -219,10 +237,12 @@ class AutoTask(requests.Session):
         company_call = self.post(companies_url, json=company.as_dict())
         company_call_object = company_call.json()
         company_id = company_call_object.get('itemId')
-        print(company_call.text)
+        logger.debug(f'Company created with ID: {company_id}')
 
         # Create a contact for the company
         for idx, contact in enumerate(lex_company.contactPersons):
+            logger.debug(f'Creating contact: {contact}')
+
             contact_model = ContactModel(
                 firstName=contact.firstName,
                 lastName=contact.lastName,
@@ -232,13 +252,18 @@ class AutoTask(requests.Session):
                 primaryContact=True if idx == 0 else False
             )
 
-            self.post(
+            contact_result = self.post(
                 f'{companies_url}/{company_id}/Contacts',
                 json=contact_model.as_dict()
             )
+            contact_result_object = contact_result.json()
+            contact_id = contact_result_object.get('id')
+            logger.debug(f'Contact created with ID: {contact_id}')
 
     def update_company(self: 'AutoTask', lex_company: LexCompany, autotask_id: str) -> dict:
         """Update an existing company in AutoTask."""
+        logger.debug(f'Updating company in AutoTask: {lex_company}')
+
         companies_url = f"{self.base_url}/Companies"
 
         # Create the company object
@@ -247,25 +272,36 @@ class AutoTask(requests.Session):
         company.id = autotask_id
 
         # Update the company in AutoTask
-        self.patch(companies_url, json=company.as_dict())
+        company_call = self.patch(companies_url, json=company.as_dict())
+        company_call_object = company_call.json()
+        company_call_id = company_call_object.get('id')
+        logger.debug(f'Company updated with ID: {company_call_id}')
 
         # Get all contacts for the company
         contacts_url = f'{companies_url}/{autotask_id}/Contacts'
         contacts = self.get(contacts_url).json().get('items', [])
+        logger.debug(f'Contacts for company: {contacts}')
 
         # Create map for AutoTask contacts
         email_map = {c.get('emailAddress'): c.get('id') for c in contacts}
+        logger.debug(f'Email map for contacts: {email_map}')
 
         # Create map for Lexware contacts
         lex_contacts = {c.emailAddress: c for c in lex_company.contactPersons}
+        logger.debug(f'Lexware contacts: {lex_contacts}')
 
         # Cleanup contacts
         for email, contact_id in email_map.items():
             if email not in lex_contacts:
-                self.delete(f'{contacts_url}/{contact_id}')
+                delete_call = self.delete(f'{contacts_url}/{contact_id}')
+                delete_call_object = delete_call.json()
+                delete_call_id = delete_call_object.get('id')
+                logger.debug(f'Contact deleted with ID: {delete_call_id}')
 
         # Update the contacts
         for idx, lex_contact in enumerate(lex_company.contactPersons):
+            logger.debug(f'Updating contact: {lex_contact}')
+
             contact_model = ContactModel(
                 firstName=lex_contact.firstName,
                 lastName=lex_contact.lastName,
@@ -284,21 +320,30 @@ class AutoTask(requests.Session):
 
             # Update or create the contact
             if contact_id:
+                logger.debug(f'Updating contact with ID: {contact_id}')
+
                 contact_model.id = contact_id
                 contact_update = self.patch(
                     f'{contacts_url}',
                     json=contact_model.as_dict()
                 )
                 contact_update_object = contact_update.json()
-                print(contact_update_object)
+                contact_update_id = contact_update_object.get('id')
+                logger.debug(f'Contact updated with ID: {contact_update_id}')
+
             else:
-                self.post(
+                contact_create = self.post(
                     contacts_url,
                     json=contact_model.as_dict()
                 )
+                contact_create_object = contact_create.json()
+                contact_create_id = contact_create_object.get('id')
+                logger.debug(f'Contact created with ID: {contact_create_id}')
 
     def _create_company_object(self: 'AutoTask', lex_company: LexCompany) -> Company:
         """Create a company object for the AutoTask API."""
+        logger.debug(f'Creating company object for AutoTask: {lex_company}')
+
         # Create a new company object
         company = Company(
             companyName=lex_company.name,
@@ -310,7 +355,6 @@ class AutoTask(requests.Session):
         company.taxID = lex_company.taxNumber
         company.phone = lex_company.phoneNumbers[0] if len(lex_company.phoneNumbers) >= 1 else self.default_phone
         company.fax = lex_company.faxNumbers[0] if len(lex_company.faxNumbers) >= 1 else None
-        # company.webAddress = lex_company.web  # TODO: Web address is not in Lexware
 
         # Set the company address
         if len(lex_company.shipping_adresses) >= 1:

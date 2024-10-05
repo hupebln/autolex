@@ -1,3 +1,4 @@
+import logging
 import os
 
 import click
@@ -8,11 +9,23 @@ from autolex.classes.autotask import AutoTask
 from autolex.classes.lexware import Lexware, Webhook
 
 
+# Set up logging
+logging_level = os.getenv('LOGGING_LEVEL', 'INFO')
+logging_num_level = logging.getLevelNamesMapping().get(logging_level, logging.INFO)
+logging.basicConfig(level=logging_num_level)
+
+# Create a logger
+logger = logging.getLogger('autolex')
+
+
 app = Flask(__name__)
 
 
 def _return_clients() -> tuple[Lexware, AutoTask]:
     """Create and return Lexware and AutoTask clients."""
+    logger.debug('Creating Lexware and AutoTask clients...')
+
+    # Get the environment variables
     lex_base_url = os.getenv('LEXOFFICE_BASE_URL')
     lex_api_key = os.getenv('LEXOFFICE_API_KEY')
 
@@ -42,11 +55,14 @@ def _return_clients() -> tuple[Lexware, AutoTask]:
 @app.route('/webhook', methods=['POST'])
 def webhook() -> str | None:
     """Handle incoming webhook POST requests."""
+    logger.debug('Received webhook request...')
+
     if request.method == 'POST':
         webhook: Webhook = Webhook.load_webhook(request, os.getenv('LEXOFFICE_PUBKEY_PATH'))
 
         # Get the contact ID from the webhook
         contact_id = webhook.resourceId
+        logger.info(f'Webhook received for contact ID: {contact_id}')
 
         # Get the Lexware and AutoTask clients
         lexware, autotask = _return_clients()
@@ -59,11 +75,14 @@ def webhook() -> str | None:
         match webhook.eventType:
             case 'contact.created':
                 _sync_contact()
+                logger.info(f'Contact ID: {contact_id} has been created.')
                 return "Webhook received!"
             case 'contact.changed':
                 _sync_contact()
+                logger.info(f'Contact ID: {contact_id} has been updated.')
                 return "Webhook received!"
             case _:
+                logger.warning(f'Unhandled webhook event type: {webhook.eventType}')
                 return "Webhook received, but not processed!"
 
 @click.group()
