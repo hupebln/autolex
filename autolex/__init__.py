@@ -43,8 +43,7 @@ def _return_clients() -> tuple[Lexware, AutoTask]:
 def webhook() -> str | None:
     """Handle incoming webhook POST requests."""
     if request.method == 'POST':
-        data = request.json
-        webhook: Webhook = Webhook.from_dict(data)
+        webhook: Webhook = Webhook.load_webhook(request, os.getenv('LEXOFFICE_PUBKEY_PATH'))
 
         # Get the Lexware and AutoTask clients
         lexware, autotask = _return_clients()

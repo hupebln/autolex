@@ -4,9 +4,17 @@ This module provides classes for interacting with the Lexware API, handling webh
 and managing company, billing, shipping, and contact person data.
 """
 
+import json
+
+from base64 import b64decode
 from dataclasses import dataclass
 
 import requests
+
+from Crypto.Hash import SHA512
+from Crypto.PublicKey import RSA
+from Crypto.Signature import PKCS1_v1_5
+from flask import Request
 
 
 @dataclass
@@ -30,6 +38,41 @@ class Webhook:
             resourceId=data.get('resourceId'),
             eventDate=data.get('eventDate')
         )
+
+    @classmethod
+    def load_webhook(cls: 'Webhook', flask_request: Request, pubkey_path: str) -> None:
+        """Load webhook data from a Flask request object.
+
+        :param flask_request: A Flask request object containing webhook data.
+        """
+        # Check the signature
+        signature = flask_request.headers.get('X-Lxo-Signature')
+        public_key = open(pubkey_path).read()
+        if not cls._verify_sha512_signature(public_key, signature, json.dumps(flask_request.json)):
+            raise ValueError('Invalid signature')
+
+        # Load the webhook data
+        data = flask_request.json
+
+        return cls.from_dict(data)
+
+    @staticmethod
+    def _verify_sha512_signature(public_key: str, signature: str, data: str) -> bool:
+        """Verify a SHA-512 signature using a public key.
+
+        :param public_key: The public key used to verify the signature.
+        :param signature: The signature to verify.
+        :param data: The data to verify.
+        :return: True if the signature is valid, False otherwise.
+        """
+        # Replace remove spaces from data
+        data = data.replace(' ', '')
+
+        # Verify the signature
+        key = RSA.import_key(public_key)
+        h = SHA512.new(data.encode())
+        verifier = PKCS1_v1_5.new(key)
+        return verifier.verify(h, b64decode(signature.encode()))
 
 
 @dataclass
