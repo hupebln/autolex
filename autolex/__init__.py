@@ -10,12 +10,50 @@ from autolex.classes.lexware import Lexware, Webhook
 
 app = Flask(__name__)
 
+
+def _return_clients() -> tuple[Lexware, AutoTask]:
+    """Create and return Lexware and AutoTask clients."""
+    lex_base_url = os.getenv('LEXOFFICE_BASE_URL')
+    lex_api_key = os.getenv('LEXOFFICE_API_KEY')
+
+    auto_base_url = os.getenv('AUTOTASK_BASE_URL')
+    auto_api_user = os.getenv('AUTOTASK_API_USERNAME')
+    auto_api_key = os.getenv('AUTOTASK_API_SECRET')
+    auto_integration_code = os.getenv('AUTOTASK_API_INTEGRATION_CODE')
+    auto_owner_resource_id = os.getenv('AUTOTASK_OWNER_RESOURCE_ID')
+    auto_default_phone = os.getenv('AUTOTASK_DEFAULT_PHONE')
+
+    # Create the Lexware and AutoTask clients
+    lexware = Lexware(
+        base_url=lex_base_url,
+        api_key=lex_api_key
+    )
+    autotask = AutoTask(
+        base_url=auto_base_url,
+        api_user=auto_api_user,
+        api_key=auto_api_key,
+        api_integration_code=auto_integration_code,
+        owner_resource_id=int(auto_owner_resource_id),
+        default_phone=auto_default_phone
+    )
+
+    return lexware, autotask
+
 @app.route('/webhook', methods=['POST'])
 def webhook() -> str | None:
     """Handle incoming webhook POST requests."""
     if request.method == 'POST':
         data = request.json
-        webhook = Webhook.from_dict(data)
+        webhook: Webhook = Webhook.from_dict(data)
+
+        # Get the Lexware and AutoTask clients
+        lexware, autotask = _return_clients()
+
+        # Handle the webhook event
+        contact_id = webhook.resourceId
+        lex_company = lexware.get_contact(contact_id)
+        autotask.assure_company(lex_company)
+
         return "Webhook received!"
 
 @click.group()
@@ -34,18 +72,8 @@ def start_server(host: str, port: int) -> None:
 @click.option('--contact-id', type=str, help='the ID of the contact to synchronize')
 def sync(contact_id: str) -> None:
     """Synchronize data with Lexware."""
-    lex_base_url = os.getenv('LEXOFFICE_BASE_URL')
-    lex_api_key = os.getenv('LEXOFFICE_API_KEY')
-
-    auto_base_url = os.getenv('AUTOTASK_BASE_URL')
-    auto_api_user = os.getenv('AUTOTASK_API_USERNAME')
-    auto_api_key = os.getenv('AUTOTASK_API_SECRET')
-    auto_integration_code = os.getenv('AUTOTASK_API_INTEGRATION_CODE')
-    auto_owner_resource_id = os.getenv('AUTOTASK_OWNER_RESOURCE_ID')
-
-    # Create the Lexware and AutoTask clients
-    lexware = Lexware(lex_base_url, lex_api_key)
-    autotask = AutoTask(auto_base_url, auto_api_user, auto_api_key, auto_integration_code, int(auto_owner_resource_id))
+    # Get the Lexware and AutoTask clients
+    lexware, autotask = _return_clients()
 
     # Get the contact from Lexware and create a company in AutoTask
     if contact_id:
@@ -58,4 +86,4 @@ cli.add_command(sync)
 
 
 if __name__ == '__main__':
-    cli()
+    app.run(host='0.0.0.0', port=8000)
