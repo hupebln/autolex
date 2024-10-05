@@ -60,7 +60,7 @@ def webhook() -> str | None:
             case 'contact.created':
                 _sync_contact()
                 return "Webhook received!"
-            case 'contact.updated':
+            case 'contact.changed':
                 _sync_contact()
                 return "Webhook received!"
 
