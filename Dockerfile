@@ -38,4 +38,4 @@ RUN /home/app/.local/bin/poetry install
 EXPOSE 8000
 
 # Run the application
-CMD ["/home/app/.local/bin/poetry", "run", "uwsgi", "--yaml", "uwsgi.yaml"]
+CMD ["/home/app/.local/bin/poetry", "run", "autolex", "sync"]

@@ -6,6 +6,7 @@ and managing company, billing, shipping, and contact person data.
 
 import json
 import logging
+import time
 
 from base64 import b64decode
 from dataclasses import dataclass
@@ -205,18 +206,33 @@ class Company:
         """
         logger.debug(f'Loading company data: {data}')
 
+        company: dict = data.get('company', {})
+        company_name = company.get('name')
+        contact_persons: list[dict] = company.get('contactPersons', [])
+        contact_persons_objects: list[ContactPerson] = []
+
+        for cp in contact_persons:
+            contact_person_object: ContactPerson = ContactPerson.from_dict(cp)
+
+            # If the contact person has no email address, use a default email address
+            if not cp.get('emailAddress'):
+                contact_person_object.emailAddress = f'{cp.get("firstName")}{cp.get("lastName")}@example.com'
+                logger.warning(
+                    f'Contact person {company_name}: {contact_person_object} has no email address, using default.'
+                )
+
+            contact_persons_objects.append(contact_person_object)
+
         return cls(
             id=data.get('id'),
             organizationId=data.get('organizationId'),
             version=data.get('version'),
             roles=data.get('roles'),
-            name=data.get('company', {}).get('name'),
-            taxNumber=data.get('company', {}).get('taxNumber'),
-            vatId=data.get('company', {}).get('vatRegistrationId'),
-            allowTaxFreeInvoices=data.get('company', {}).get('allowTaxFreeInvoices'),
-            contactPersons=[
-                ContactPerson.from_dict(cp) for cp in data.get('company', {}).get('contactPersons', [])
-            ],
+            name=company_name,
+            taxNumber=company.get('taxNumber'),
+            vatId=company.get('vatRegistrationId'),
+            allowTaxFreeInvoices=company.get('allowTaxFreeInvoices'),
+            contactPersons=contact_persons_objects,
             emailAddresses=data.get('emailAddresses', []),
             phoneNumbers=data.get('phoneNumbers', {}).get('business', []),
             faxNumbers=data.get('phoneNumbers', {}).get('fax', []),
@@ -261,3 +277,40 @@ class Lexware(requests.Session):
 
         if 'company' in data:
             return Company.from_dict(data)
+
+    def get_all_contacts(
+            self: 'Lexware',
+            customer: bool = True,
+            vendor: bool = False,
+            archived: bool = False
+        ) -> list[Company]:
+        """Retrieve all contacts.
+
+        :return: A list of Company instances representing the contacts.
+        """
+        logger.debug('Getting all contacts...')
+
+        url = f'{self.base_url}/contacts'
+        params = {'customer': customer, 'vendor': vendor, "page": 0}
+
+        def _get_all_pages() -> iter:
+            while True:
+                response = self.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+
+                for contact in data.get('content', []):
+                    if contact.get("archived") == archived:
+                        yield Company.from_dict(contact)
+
+                if data.get('last'):
+                    break
+
+                params['page'] += 1
+
+                # Lexware API rate limit is 2 requests per second, so sleep for 1 seconds
+                time.sleep(1)
+
+        data = _get_all_pages()
+
+        return list(data)

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "autolex"
-version = "0.1.0"
+version = "0.2.0"
 description = "Synchronises Lexware/Lexoffice contacts to AutoTask"
 authors = ["Christian Schirge <11520417+hupebln@users.noreply.github.com>"]
 license = "MIT"

@@ -35,6 +35,9 @@ def _return_clients() -> tuple[Lexware, AutoTask]:
     auto_integration_code = os.getenv('AUTOTASK_API_INTEGRATION_CODE')
     auto_owner_resource_id = os.getenv('AUTOTASK_OWNER_RESOURCE_ID')
     auto_default_phone = os.getenv('AUTOTASK_DEFAULT_PHONE')
+    auto_default_first_name = os.getenv('AUTOTASK_DEFAULT_FIRST_NAME', '.')  # Default to '.' if not set
+    auto_default_last_name = os.getenv('AUTOTASK_DEFAULT_LAST_NAME', '.')  # Default to '.' if not set
+    auto_overwrite_name_list = os.getenv('AUTOTASK_OVERWRITE_NAME_LIST', '.').split(',')  # Default to '.' if not set
 
     # Create the Lexware and AutoTask clients
     lexware = Lexware(
@@ -47,7 +50,10 @@ def _return_clients() -> tuple[Lexware, AutoTask]:
         api_key=auto_api_key,
         api_integration_code=auto_integration_code,
         owner_resource_id=int(auto_owner_resource_id),
-        default_phone=auto_default_phone
+        default_phone=auto_default_phone,
+        default_first_name=auto_default_first_name,
+        default_last_name=auto_default_last_name,
+        overwrite_name_list=auto_overwrite_name_list,
     )
 
     return lexware, autotask
@@ -100,19 +106,28 @@ def start_server(host: str, port: int) -> None:
 @click.command()
 @click.option('--contact-id', type=str, help='the ID of the contact to synchronize')
 def sync(contact_id: str) -> None:
-    """Synchronize data with Lexware."""
+    """Synchronize data with Lexware.
+
+    Assure a company or all companies exist in AutoTask.
+    """
     # Get the Lexware and AutoTask clients
     lexware, autotask = _return_clients()
 
-    # Get the contact from Lexware and create a company in AutoTask
+    # Get the contact from Lexware and make sure it exists in AutoTask
     if contact_id:
         lex_company = lexware.get_contact(contact_id)
         autotask.create_company(lex_company)
         return
+
+    # Get all contacts from Lexware and make sure they exist in AutoTask
+    lex_companies = lexware.get_all_contacts()
+
+    for lex_company in lex_companies:
+        autotask.assure_company(lex_company)
 
 cli.add_command(start_server)
 cli.add_command(sync)
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    sync()

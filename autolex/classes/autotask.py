@@ -9,6 +9,7 @@ from urllib.parse import quote
 import requests
 
 from autolex.classes.lexware import Company as LexCompany
+from autolex.classes.lexware import ContactPerson as LexContactPerson
 
 
 logger = logging.getLogger('autolex.autotask')
@@ -167,7 +168,10 @@ class AutoTask(requests.Session):
         api_key: str,
         api_integration_code: str,
         owner_resource_id: int,
-        default_phone: str
+        default_phone: str,
+        default_first_name: str,
+        default_last_name: str,
+        overwrite_name_list: list[str] | None = None
     ) -> None:
         """Initialize the AutoTask class."""
         logger.debug('Initializing AutoTask client...')
@@ -179,6 +183,14 @@ class AutoTask(requests.Session):
         self.api_integration_code = api_integration_code
         self.owner_resource_id = owner_resource_id
         self.default_phone = default_phone
+        self.default_first_name = default_first_name
+        self.default_last_name = default_last_name
+
+        if overwrite_name_list is None:
+            self.overwrite_name_list = []
+        else:
+            self.overwrite_name_list = overwrite_name_list
+
         self.headers = {
             'ApiIntegrationCode': self.api_integration_code,
             'UserName': self.api_user,
@@ -197,6 +209,26 @@ class AutoTask(requests.Session):
             if country.get('countryCode') == country_code:
                 return country.get('id')
 
+    def _create_contact_object(self: 'AutoTask', lex_contact: LexContactPerson, primary: bool) -> ContactModel:
+        """Create a contact object for the AutoTask API."""
+        logger.debug(f'Creating contact object for AutoTask: {lex_contact}')
+
+        first_name = lex_contact.firstName
+        last_name = lex_contact.lastName
+        email_address = lex_contact.emailAddress
+        phone = lex_contact.phoneNumber
+
+        contact = ContactModel(
+            firstName=first_name if first_name else self.default_first_name,
+            lastName=last_name if last_name else self.default_last_name,
+            emailAddress=email_address,
+            phone=phone if phone else self.default_phone,
+            isActive=1,
+            primaryContact=primary
+        )
+
+        return contact
+
     def assure_company(self: 'AutoTask', lex_company: LexCompany) -> None:
         """Ensure the company exists in AutoTask, creating or updating it as necessary."""
         customer_number = lex_company.roles.get('customer', {}).get('number')
@@ -211,18 +243,23 @@ class AutoTask(requests.Session):
         companies = company_search_object.get('items', [])
 
         if len(companies) == 0:
-            logger.info(f'Company (Lex Customer:{customer_number}) does not exist in AutoTask.')
+            logger.info(
+                f'Create company (Lex Customer: {lex_company.name}[{customer_number}]) in AutoTask.'
+            )
 
             self.create_company(lex_company)
 
         if len(companies) == 1:
-            logger.info(f'Company (Lex Customer:{customer_number}) exists in AutoTask.')
+            company: dict = companies[0]
+            logger.info(f'Update company (Lex Customer: {lex_company.name}[{customer_number}]) in AutoTask.')
 
-            autotask_id = companies[0].get('id')
+            autotask_id = company.get('id')
             self.update_company(lex_company, autotask_id)
 
         if len(companies) > 1:
-            logger.error(f"Company (Lex Customer:{customer_number}) exists multiple times in AutoTask.")
+            logger.error(
+                f"Company (Lex Customer: {lex_company.name}[{customer_number}]) exists multiple times in AutoTask."
+            )
 
     def create_company(self: 'AutoTask', lex_company: LexCompany) -> dict:
         """Create a new company in AutoTask."""
@@ -243,14 +280,7 @@ class AutoTask(requests.Session):
         for idx, contact in enumerate(lex_company.contactPersons):
             logger.debug(f'Creating contact: {contact}')
 
-            contact_model = ContactModel(
-                firstName=contact.firstName,
-                lastName=contact.lastName,
-                emailAddress=contact.emailAddress,
-                phone=contact.phoneNumber,
-                isActive=1,
-                primaryContact=True if idx == 0 else False
-            )
+            contact_model = self._create_contact_object(contact, primary=True if idx == 0 else False)
 
             contact_result = self.post(
                 f'{companies_url}/{company_id}/Contacts',
@@ -259,6 +289,8 @@ class AutoTask(requests.Session):
             contact_result_object = contact_result.json()
             contact_id = contact_result_object.get('id')
             logger.debug(f'Contact created with ID: {contact_id}')
+
+        logger.debug('Company created successfully.')
 
     def update_company(self: 'AutoTask', lex_company: LexCompany, autotask_id: str) -> dict:
         """Update an existing company in AutoTask."""
@@ -274,48 +306,52 @@ class AutoTask(requests.Session):
         # Update the company in AutoTask
         company_call = self.patch(companies_url, json=company.as_dict())
         company_call_object = company_call.json()
-        company_call_id = company_call_object.get('id')
+        company_call_id = company_call_object.get('itemId')
         logger.debug(f'Company updated with ID: {company_call_id}')
 
         # Get all contacts for the company
         contacts_url = f'{companies_url}/{autotask_id}/Contacts'
-        contacts = self.get(contacts_url).json().get('items', [])
-        logger.debug(f'Contacts for company: {contacts}')
+        autotask_contacts: list[dict] = self.get(contacts_url).json().get('items', [])
+        logger.debug(f'Contacts for company: {autotask_contacts}')
 
-        # Create map for AutoTask contacts
-        email_map = {c.get('emailAddress'): c.get('id') for c in contacts}
-        logger.debug(f'Email map for contacts: {email_map}')
-
-        # Create map for Lexware contacts
-        lex_contacts = {c.emailAddress: c for c in lex_company.contactPersons}
-        logger.debug(f'Lexware contacts: {lex_contacts}')
-
-        # Cleanup contacts
-        for email, contact_id in email_map.items():
-            if email not in lex_contacts:
-                delete_call = self.delete(f'{contacts_url}/{contact_id}')
-                delete_call_object = delete_call.json()
-                delete_call_id = delete_call_object.get('id')
-                logger.debug(f'Contact deleted with ID: {delete_call_id}')
+        # Log the Lexware contacts
+        logger.debug(f'Lexware contacts: {lex_company.contactPersons}')
 
         # Update the contacts
         for idx, lex_contact in enumerate(lex_company.contactPersons):
             logger.debug(f'Updating contact: {lex_contact}')
 
-            contact_model = ContactModel(
-                firstName=lex_contact.firstName,
-                lastName=lex_contact.lastName,
-                emailAddress=lex_contact.emailAddress,
-                phone=lex_contact.phoneNumber,
-                isActive=1,
-                primaryContact=True if idx == 0 else False
-            )
+            contact_model = self._create_contact_object(lex_contact, primary=True if idx == 0 else False)
 
-            # Check if the contact exists
+            # Check if the contact exists and change the first name if necessary
             contact_id = None
-            for c in contacts:
-                if c.get('emailAddress') == lex_contact.emailAddress:
-                    contact_id = c.get('id')
+            for ac in autotask_contacts:
+                lex_first_name = contact_model.firstName
+                lex_last_name = contact_model.lastName
+                lex_email = contact_model.emailAddress
+                autotask_first_name = ac.get('firstName')
+                autotask_last_name = ac.get('lastName')
+                autotask_email = ac.get('emailAddress')
+                autotask_id = ac.get('id')
+
+                if autotask_email == lex_email:
+                    lex_first_name_valid = lex_first_name not in self.overwrite_name_list
+                    lex_last_name_valid = lex_last_name not in self.overwrite_name_list
+                    autotask_first_name_valid = autotask_first_name not in self.overwrite_name_list
+                    autotask_last_name_valid = autotask_last_name not in self.overwrite_name_list
+
+                    contact_id = autotask_id
+
+                    # If the AutoTask First Name is valid and the Lex First Name is not valid,
+                    # use the AutoTask First Name
+                    if autotask_first_name_valid and not lex_first_name_valid:
+                        contact_model.firstName = autotask_first_name
+
+                    # If the AutoTask Last Name is valid and the Lex Last Name is not valid,
+                    # use the AutoTask Last Name
+                    if autotask_last_name_valid and not lex_last_name_valid:
+                        contact_model.lastName = autotask_last_name
+
                     break
 
             # Update or create the contact
@@ -327,8 +363,8 @@ class AutoTask(requests.Session):
                     f'{contacts_url}',
                     json=contact_model.as_dict()
                 )
-                contact_update_object = contact_update.json()
-                contact_update_id = contact_update_object.get('id')
+                contact_update_object: dict = contact_update.json()
+                contact_update_id = contact_update_object.get('itemId')
                 logger.debug(f'Contact updated with ID: {contact_update_id}')
 
             else:
@@ -337,8 +373,10 @@ class AutoTask(requests.Session):
                     json=contact_model.as_dict()
                 )
                 contact_create_object = contact_create.json()
-                contact_create_id = contact_create_object.get('id')
+                contact_create_id = contact_create_object.get('itemId')
                 logger.debug(f'Contact created with ID: {contact_create_id}')
+
+        logger.debug('Company updated successfully.')
 
     def _create_company_object(self: 'AutoTask', lex_company: LexCompany) -> Company:
         """Create a company object for the AutoTask API."""
@@ -357,18 +395,11 @@ class AutoTask(requests.Session):
         company.fax = lex_company.faxNumbers[0] if len(lex_company.faxNumbers) >= 1 else None
 
         # Set the company address
-        if len(lex_company.shipping_adresses) >= 1:
-            address = lex_company.shipping_adresses[0]
+        if len(lex_company.billing_adresses) >= 1:
+            address = lex_company.billing_adresses[0]
             company.address1 = address.street
             company.city = address.city
             company.postalCode = address.zip
             company.countryID = self._get_country_id(address.countryCode)
-
-        if len(lex_company.billing_adresses) >= 1:
-            address = lex_company.billing_adresses[0]
-            company.billingAddress1 = address.street
-            company.billToCity = address.city
-            company.billToZipCode = address.zip
-            company.billToCountryID = self._get_country_id(address.countryCode)
 
         return company
