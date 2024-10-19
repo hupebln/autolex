@@ -12,4 +12,4 @@ docker-build:
 
 docker-save: docker-build
 	mkdir -p docker-save
-	docker save $(IMAGE_NAME):$(VERSION) -o docker-save/$(IMAGE_NAME)_$(VERSION).tar
+	docker save $(IMAGE_NAME):$(VERSION) -o docker-save/$(IMAGE_NAME)_$(VERSION).tar.gz
