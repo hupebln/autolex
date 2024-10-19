@@ -165,3 +165,9 @@ cython_debug/
 #   If you are using pyenv to manage your Python installations, you might want to ignore
 #   the .python-version file:
 .python-version
+
+# ignore directory docker-save
+docker-save/
+
+# ignore devcontainer
+.devcontainer/
